@@ -9,7 +9,7 @@ import pandas as pd
 from gymnasium import spaces
 
 
-class SupplyChainEngine(gym.Env):
+class SupplyChainEnvironment(gym.Env):
     """
     A custom Gymnasium environment for supply chain optimization in manufacturing.
 
