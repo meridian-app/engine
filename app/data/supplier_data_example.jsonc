@@ -32,7 +32,7 @@
             ]
         }
     ],
-    "performance_metrics": {
+    "performance_metrics": { // Optional performance metrics
         "on_time_delivery": 92.5,
         "quality_rating": 4.2,
         "response_time": 1.5,
@@ -43,6 +43,6 @@
         "country": "India",
         "coordinates": {"latitude": 19.076, "longitude": 72.8777}
     },
-    "capacity": {"current": 75, "maximum": 100, "unit": "percent"},
-    "certifications": ["ISO9001", "ISO14001"]
+    "capacity": {"current": 75, "maximum": 100, "unit": "percent"}, // Optional 
+    "certifications": ["ISO9001", "ISO14001"] // Optional certifications
 }
