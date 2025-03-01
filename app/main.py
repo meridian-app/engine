@@ -11,21 +11,23 @@ from app.utils.websockets import WSConnectionManager
 async def lifespan(app: FastAPI):
     global engine
     engine = SupplyChainEngine()
-    
+
+    check_environment = engine.load_environment()
+
     # Try loading environment
-    if not engine.load_environment():
+    if check_environment == False:
         # Pre-train and save environment if not loaded
         engine.pre_train_environment()
         engine.save_environment()
     
-    # Start agent training in background
-    import asyncio
-    loop = asyncio.get_event_loop()
-    
-    async def train_async():
-        await loop.run_in_executor(None, engine.train_and_evaluate_agent)
+        # Start agent training in background
+        import asyncio
+        loop = asyncio.get_event_loop()
         
-    asyncio.create_task(train_async())
+        async def train_async():
+            await loop.run_in_executor(None, engine.train_and_evaluate_agent)
+            
+        asyncio.create_task(train_async())
     
     yield  # Server starts here
     

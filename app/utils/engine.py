@@ -48,11 +48,10 @@ class SupplyChainEngine:
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
         env_path = os.path.join(current_dir, "..", ENVIRONMENT_MODEL_PATH)
-
+        
         if Path(env_path).exists():
             with open(env_path, "rb") as f:
                 self.env = pickle.load(f)
-            print(f"Environment loaded from {env_path}")
             return True
         return False
 
