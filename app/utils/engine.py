@@ -118,7 +118,6 @@ class SupplyChainEngine:
         explanation = (
             f"Based on current supply chain conditions, we recommend working with {supplier} "
             f"to place an order of {order_quantity:.1f} units. "
-            f"Use {transport_mode} transportation through {route}. "
             f"For production volumes, {prod_adjustment.lower()}. "
             f"optimizing the balance between profit, lead time, and quality."
         )
