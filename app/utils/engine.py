@@ -1,29 +1,94 @@
+import os
+from pathlib import Path
 from typing import Any, Optional
 
 import gymnasium as gym
-from gymnasium.wrappers import FlattenObservation
-from tqdm import tqdm
 import numpy as np
 import pandas as pd
+from gymnasium.wrappers import FlattenObservation
 
+from app.constants import AGENT_MODEL_PATH, ENVIRONMENT_MODEL_PATH, MODELS_DIR
 from app.engine.agent import SupplyChainAgent
 from app.engine.environment import SupplyChainEnvironment
 from app.schemas.action import ActionExplanation
 
 
 class SupplyChainEngine:
-    """Class to handle supply chain optimization and explanation."""
+    """Wrapper class to handle supply chain optimization, action explanation and agent based tasks."""
 
     def __init__(self, csv_path: Optional[str] = None):
         """Initialize the optimizer with a supply chain environment."""
         self.env = SupplyChainEnvironment(csv_path=csv_path, render_mode=None)
+        self.agent: Optional[SupplyChainAgent] = None
         self.reset_environment()
+
+    def pre_train_environment(self, num_simulations=1000):
+        """Pre-train environment using Monte Carlo simulations"""
+        print("Pre-training environment...")
+        self.train_environment(num_simulations=num_simulations)
+        print("\nEnvironment pre-training complete!")
+
+    def save_environment(self):
+        """Save environment state"""
+        import os
+        import pickle
+        
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        agent_path = os.path.join(current_dir, "..", ENVIRONMENT_MODEL_PATH)
+
+        # Create the directory if it doesn't exist
+        os.makedirs(os.path.join(current_dir, "..", MODELS_DIR), exist_ok=True)
+        with open(agent_path, "wb+") as f:
+            pickle.dump(self.env, f)
+        print(f"Environment saved to {ENVIRONMENT_MODEL_PATH}")
+
+    def load_environment(self) -> bool:
+        """Load environment state if available"""
+        import pickle
+
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        env_path = os.path.join(current_dir, "..", ENVIRONMENT_MODEL_PATH)
+
+        if Path(env_path).exists():
+            with open(env_path, "rb") as f:
+                self.env = pickle.load(f)
+            print(f"Environment loaded from {env_path}")
+            return True
+        return False
 
     def reset_environment(self):
         """Reset the environment to initial state."""
         observation, _ = self.env.reset()
         self.current_observation = observation
         return observation
+
+    def save_agent(self):
+        """Save trained agent"""
+        if self.agent:
+            # Create the directory if it doesn't exist
+            import os
+            
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            agent_path = os.path.join(current_dir, "..", AGENT_MODEL_PATH)
+
+            os.makedirs(os.path.join(current_dir, "..", MODELS_DIR), exist_ok=True)
+            self.agent.save_model(agent_path)
+            print(f"Agent saved to {agent_path}")
+
+    def load_agent(self) -> bool:
+        """Load trained agent if available"""
+        import os
+            
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        agent_path = os.path.join(current_dir, "..", AGENT_MODEL_PATH)
+
+        if Path(agent_path).exists():
+            if not self.agent:
+                self.agent = SupplyChainAgent(self.env)
+            self.agent.load_model(agent_path)
+            print(f"Agent loaded from {agent_path}")
+            return True
+        return False
 
     def explain_action(self, action, reward):
         """Generate a human-readable explanation for an action."""
@@ -173,101 +238,82 @@ class SupplyChainEngine:
         )
 
         return self.env
-    
-    def train_and_evaluate_agent(self, num_episodes=500):
-        """
-        Train and evaluate a Q-learning agent on the SupplyChainEngine environment.
-        
-        Args:
-            num_episodes: Number of episodes to train
-            
-        Returns:
-            Trained agent and evaluation results
-        """
-        # Flatten the observation space for easier handling with Q-learning
-        env = FlattenObservation(self.env)
-        
-        # Create and train agent
-        agent = SupplyChainAgent(
-            env,
-            learning_rate=0.1,
-            discount_factor=0.95,
-            epsilon_start=1.0,
-            epsilon_end=0.01,
-            epsilon_decay=0.99,
-            discretization_bins=8
-        )
-        
-        print("Starting training...")
-        agent.train(num_episodes=num_episodes)
-        print("Training completed!")
-        
-        # Evaluate agent
-        print("Evaluating agent...")
-        eval_results = agent.evaluate(num_episodes=20)
-        print("Evaluation results:", eval_results)
-        
-        # Plot results
-        agent.plot_training_results()
-    
-        return agent, eval_results
 
-    def optimize(self, num_simulations=100, horizon=10):
+    def train_environment(self, num_simulations=100, horizon=10):
         """
-        Use Monte Carlo simulation to find optimal actions.
-
-        Args:
-            env: The supply chain environment
-            num_simulations: Number of Monte Carlo simulations
-            horizon: Planning horizon (steps to simulate)
-
-        Returns:
-            The best actions found and their expected rewards
+        Use Monte Carlo simulation to find optimal actions with prediction logging.
         """
-        # Store top 3 best actions and rewards
         top_actions = []
         top_rewards = []
 
-        # Get current state
         current_observation = self.env._get_state_representation()
 
-        # Run multiple simulations to find the best actions
         for _ in range(num_simulations):
-            # Sample a random action
             action = self.env.action_space.sample()
+            test_env = self._create_test_env_copy()
 
-            # Create a copy of the current environment state
-            test_env = SupplyChainEnvironment(render_mode=None)
-            test_env.reset()
-            test_env.current_state = self.env.current_state.copy()
-            test_env.current_supplier_idx = self.env.current_supplier_idx
-            test_env.current_transport_idx = self.env.current_transport_idx
-            test_env.current_route_idx = self.env.current_route_idx
-
-            # Apply the action
-            _, reward, _, _, _ = test_env.step(action)
+            # Apply the initial action and get predictions
+            _next_state, reward, _terminated, _truncated, info = test_env.step(action)
             total_reward = reward
 
-            # Simulate future steps with random actions
+            # Print predictions and actuals
+            print(f"Reward: {reward:.2f}")
+            print(
+                f"Lead Time: {info['metrics']['lead_time']:.1f} (Predicted: {info['predictions']['Lead time']:.1f})"
+            )
+            print(
+                f"Costs: {info['metrics']['costs']:.2f} (Predicted: {info['predictions']['Costs']:.2f})"
+            )
+
+            # Simulate future steps
             for _ in range(horizon - 1):
                 future_action = test_env.action_space.sample()
-                _, reward, done, _, _ = test_env.step(future_action)
-                total_reward += reward * 0.9  # Apply discount factor
+                _, future_reward, done, _, _ = test_env.step(future_action)
+                total_reward += future_reward * 0.9
                 if done:
                     break
 
-            # Check if this is among the top actions
+            # Update top actions
             if len(top_actions) < 3 or total_reward > min(top_rewards):
-                # Add this action and reward
                 top_actions.append(action)
                 top_rewards.append(total_reward)
-
-                # Sort and keep only the top 3
+                # Maintain only top 3
                 if len(top_actions) > 3:
-                    # Find index of minimum reward
                     min_idx = top_rewards.index(min(top_rewards))
-                    # Remove the action with the minimum reward
                     top_actions.pop(min_idx)
                     top_rewards.pop(min_idx)
 
         return list(zip(top_actions, top_rewards))
+
+    def train_and_evaluate_agent(self, num_episodes=500):
+        """Train and evaluate agent with environment pre-training"""
+        # Pre-train environment if not already trained
+        if not Path(ENVIRONMENT_MODEL_PATH).exists():
+            self.pre_train_environment()
+            self.save_environment()
+
+        # Load or train agent
+        if not self.load_agent():
+            print("Training new agent...")
+            env = FlattenObservation(self.env)
+            self.agent = SupplyChainAgent(env)
+            agent_results = self.agent.train(num_episodes=num_episodes)
+            self.save_agent()
+
+            # Evaluate and show results
+            eval_results = self.agent.evaluate(num_episodes=20)
+            self.agent.plot_training_results()
+
+            return agent_results, eval_results
+
+        print("Using pre-trained agent")
+        return None, None
+
+    def _create_test_env_copy(self):
+        """Helper to create an environment copy"""
+        test_env = SupplyChainEnvironment()
+        test_env.current_state = self.env.current_state.copy()
+        test_env.current_supplier_idx = self.env.current_supplier_idx
+        test_env.current_transport_idx = self.env.current_transport_idx
+        test_env.current_route_idx = self.env.current_route_idx
+        return test_env

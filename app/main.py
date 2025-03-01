@@ -7,15 +7,31 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from app.utils.engine import SupplyChainEngine
 from app.utils.websockets import WSConnectionManager
 
-engine: SupplyChainEngine | None = None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load the ML model
-    inference_engine = SupplyChainEngine()
-    yield
-    inference_engine.env.close()
+    global engine
+    engine = SupplyChainEngine()
+    
+    # Try loading environment
+    if not engine.load_environment():
+        # Pre-train and save environment if not loaded
+        engine.pre_train_environment()
+        engine.save_environment()
+    
+    # Start agent training in background
+    import asyncio
+    loop = asyncio.get_event_loop()
+    
+    async def train_async():
+        await loop.run_in_executor(None, engine.train_and_evaluate_agent)
+        
+    asyncio.create_task(train_async())
+    
+    yield  # Server starts here
+    
+    # Cleanup
+    if engine:
+        engine.env.close()
 
 
 wsmanager = WSConnectionManager()
@@ -29,8 +45,8 @@ async def read_root(ws: WebSocket):
     try:
         while True:
             # Receive supplier data from WebSocket
-            data = await ws.receive_text()
-            supplier_data = json.loads(data)
+            raw_data = await ws.receive_text()
+            supplier_data = json.loads(raw_data)
 
             # Update environment with new supplier data
             engine.update_environment_with_supplier_data(supplier_data=supplier_data)  # type: ignore

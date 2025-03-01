@@ -1,12 +1,13 @@
 import os
 import random
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from gymnasium import spaces
+from sklearn.ensemble import RandomForestRegressor
 
 
 class SupplyChainEnvironment(gym.Env):
@@ -48,6 +49,7 @@ class SupplyChainEnvironment(gym.Env):
         synthetic_data_size: int = 500,
         simulation_steps: int = 30,
         random_disruptions: bool = True,
+        lead_time_weight: float = 0.5,  # Increased weight for lead time in reward calculation
     ):
         super().__init__()
 
@@ -69,6 +71,7 @@ class SupplyChainEnvironment(gym.Env):
         self.current_step = 0
         self.random_disruptions = random_disruptions
         self.render_mode = render_mode
+        self.lead_time_weight = lead_time_weight
 
         # Track metrics history for visualization
         self.metrics_history = {
@@ -77,6 +80,8 @@ class SupplyChainEnvironment(gym.Env):
             "lead_time": [],
             "defect_rate": [],
             "total_reward": [],
+            "predicted_values": [],  # Track prediction accuracy
+            "actual_values": [],     # Track actual values
         }
 
         # Get unique categorical values
@@ -88,13 +93,13 @@ class SupplyChainEnvironment(gym.Env):
 
         # Define observation space
         # We'll use Box for numerical features and Discrete for categorical
-        num_features = 9  # numerical features
-        num_suppliers = len(self.suppliers)
-        num_transport_modes = len(self.transport_modes)
-        num_routes = len(self.routes)
+        self.num_features = 9  # numerical features
+        self.num_suppliers = len(self.suppliers)
+        self.num_transport_modes = len(self.transport_modes)
+        self.num_routes = len(self.routes)
 
         # Total observation space dimension
-        obs_dim = num_features + num_suppliers + num_transport_modes + num_routes
+        obs_dim = self.num_features + self.num_suppliers + self.num_transport_modes + self.num_routes
 
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
@@ -104,10 +109,10 @@ class SupplyChainEnvironment(gym.Env):
         # [supplier_idx, order_quantity, transport_mode_idx, route_idx, production_volume_adjustment]
         self.action_space = spaces.MultiDiscrete(
             [
-                num_suppliers,  # Supplier selection
+                self.num_suppliers,  # Supplier selection
                 10,  # Order quantity (scaled 1-10)
-                num_transport_modes,  # Transportation mode
-                num_routes,  # Route selection
+                self.num_transport_modes,  # Transportation mode
+                self.num_routes,  # Route selection
                 5,  # Production volume adjustment (-2, -1, 0, 1, 2)
             ]
         )
@@ -121,6 +126,21 @@ class SupplyChainEnvironment(gym.Env):
         # Setup for rendering
         self.fig = None
         self.ax = None
+        
+        # Setup for value prediction models
+        self.prediction_models = self._initialize_prediction_models()
+        self.prediction_features = [
+            "Price", 
+            "Stock levels", 
+            "Lead time",
+            "Production volumes", 
+            "Manufacturing lead time", 
+            "Manufacturing costs",
+            "Defect rates", 
+            "Shipping costs", 
+            "Costs"
+        ]
+        self.train_prediction_models()
 
     def _load_and_preprocess_data(self, csv_path: str) -> pd.DataFrame:
         """Load and preprocess the CSV data, removing irrelevant columns."""
@@ -256,8 +276,99 @@ class SupplyChainEnvironment(gym.Env):
 
         return np.array(state_representation, dtype=np.float32)
 
+    def _get_input_features_for_prediction(self) -> np.ndarray:
+        """Extract features needed for supply chain value prediction."""
+        # Extract categorical features as indices
+        categorical_features = [
+            self.current_supplier_idx / self.num_suppliers,
+            self.current_transport_idx / self.num_transport_modes,
+            self.current_route_idx / self.num_routes
+        ]
+        
+        # Get action-related features
+        # These would typically come from the most recent action
+        # For simplicity, we'll use some defaults if not available
+        if hasattr(self, 'last_action'):
+            order_quantity = self.last_action[1] / 10.0  # Normalize to 0-1
+            prod_vol_adj = (self.last_action[4] / 4.0) + 0.5  # Normalize -2 to 2 as 0 to 1
+        else:
+            order_quantity = 0.5
+            prod_vol_adj = 0.5
+            
+        input_features = categorical_features + [order_quantity, prod_vol_adj]
+        return np.array(input_features).reshape(1, -1)
+
+    def _initialize_prediction_models(self) -> Dict[str, Any]:
+        """Initialize machine learning models for predicting supply chain values."""
+        models = {}
+        for feature in [
+            "Price", "Stock levels", "Lead time", "Production volumes",
+            "Manufacturing lead time", "Manufacturing costs", "Defect rates",
+            "Shipping costs", "Costs"
+        ]:
+            models[feature] = RandomForestRegressor(n_estimators=50, random_state=42)
+        return models
+    
+    def train_prediction_models(self):
+        """Train the prediction models on the available data."""
+        # Prepare training data
+        X_train = []
+        y_train = {feature: [] for feature in self.prediction_features}
+        
+        # For each data point in our dataset
+        for _, row in self.full_data.iterrows():
+            # Get supplier, transport, and route indices
+            try:
+                supplier_idx = self.suppliers.index(row["Supplier name"])
+                transport_idx = self.transport_modes.index(row["Transportation modes"])
+                route_idx = self.routes.index(row["Routes"])
+                
+                # Normalize indices to 0-1 range
+                supplier_norm = supplier_idx / self.num_suppliers
+                transport_norm = transport_idx / self.num_transport_modes
+                route_norm = route_idx / self.num_routes
+                
+                # Create input feature vector (simplified for demonstration)
+                # In a real system, you'd include more features like order quantities, etc.
+                features = [supplier_norm, transport_norm, route_norm, 0.5, 0.5]  # Last two are placeholders
+                X_train.append(features)
+                
+                # Get target values for each prediction model
+                for feature in self.prediction_features:
+                    if feature in row:
+                        y_train[feature].append(row[feature])
+                    else:
+                        y_train[feature].append(0)  # Fallback if data is missing
+            except (ValueError, KeyError):
+                # Skip this row if there's an issue with the indices
+                continue
+        
+        # Convert to numpy arrays
+        X_train = np.array(X_train)
+        
+        # Train each model if we have enough data
+        if len(X_train) > 0:
+            for feature in self.prediction_features:
+                y = np.array(y_train[feature])
+                self.prediction_models[feature].fit(X_train, y)
+                
+    def predict_supply_chain_values(self) -> Dict[str, float]:
+        """Predict the supply chain values based on current state and actions."""
+        input_features = self._get_input_features_for_prediction()
+        
+        predictions = {}
+        for feature in self.prediction_features:
+            predicted_value = self.prediction_models[feature].predict(input_features)[0]
+            # Ensure predictions are reasonable (no negative values)
+            predictions[feature] = max(0, predicted_value)
+            
+        return predictions
+
     def _apply_action(self, action: np.ndarray) -> Dict[str, Any]:
         """Apply the selected action and get the new state."""
+        # Store the action for later use in predictions
+        self.last_action = action
+        
         supplier_idx, order_qty_scaled, transport_idx, route_idx, prod_vol_adj = action
 
         # Convert scaled order quantity to actual value (1-10 to actual range)
@@ -353,11 +464,12 @@ class SupplyChainEnvironment(gym.Env):
         return new_state
 
     def _calculate_reward(self, state: Dict[str, Any]) -> float:
-        """Calculate reward based on key performance indicators."""
+        """Calculate reward based on key performance indicators with emphasis on lead time."""
         # Extract metrics
         revenue = state["Revenue generated"]
         total_cost = state["Costs"]
         lead_time = state["Lead time"]
+        manufacturing_lead_time = state["Manufacturing lead time"]
         defect_rate = state["Defect rates"]
 
         # Calculate profit
@@ -367,14 +479,30 @@ class SupplyChainEnvironment(gym.Env):
         max_revenue = self.full_data["Revenue generated"].max()
         max_cost = self.full_data["Costs"].max()
         max_lead_time = self.full_data["Lead time"].max()
+        max_manufacturing_lead_time = self.full_data["Manufacturing lead time"].max()
         max_defect_rate = self.full_data["Defect rates"].max()
 
         norm_profit = profit / max_revenue  # Normalize to approximately -1 to 1 range
         norm_lead_time = 1 - (lead_time / max_lead_time)  # Lower is better
+        norm_manufacturing_lead_time = 1 - (manufacturing_lead_time / max_manufacturing_lead_time)  # Lower is better
         norm_defect_rate = 1 - (defect_rate / max_defect_rate)  # Lower is better
 
-        # Weight the components (adjust weights as needed)
-        reward = 0.5 * norm_profit + 0.25 * norm_lead_time + 0.25 * norm_defect_rate
+        # Weight the components with emphasis on lead times
+        # lead_time_weight is now a parameter that can be adjusted during initialization
+        remaining_weight = 1.0 - self.lead_time_weight
+        profit_weight = 0.5 * remaining_weight
+        defect_rate_weight = 0.5 * remaining_weight
+        
+        # Divide lead time weight between supplier lead time and manufacturing lead time
+        supplier_lead_time_weight = 0.6 * self.lead_time_weight
+        manufacturing_lead_time_weight = 0.4 * self.lead_time_weight
+
+        reward = (
+            profit_weight * norm_profit + 
+            supplier_lead_time_weight * norm_lead_time + 
+            manufacturing_lead_time_weight * norm_manufacturing_lead_time + 
+            defect_rate_weight * norm_defect_rate
+        )
 
         return reward
 
@@ -394,6 +522,8 @@ class SupplyChainEnvironment(gym.Env):
             "lead_time": [],
             "defect_rate": [],
             "total_reward": [],
+            "predicted_values": [],
+            "actual_values": [],
         }
 
         # Choose a random initial state from the dataset
@@ -424,6 +554,9 @@ class SupplyChainEnvironment(gym.Env):
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         """Take a step in the environment based on the action."""
+        # Predict supply chain values before applying action
+        predicted_values = self.predict_supply_chain_values()
+
         # Apply action to get new state
         self.current_state = self._apply_action(action)
 
@@ -437,20 +570,30 @@ class SupplyChainEnvironment(gym.Env):
         terminated = self.current_step >= self.simulation_steps
         truncated = False
 
+        # Compare predicted values with actual values
+        prediction_errors = {}
+        for feature in self.prediction_features:
+            if feature in self.current_state:
+                actual = self.current_state[feature]
+                predicted = predicted_values[feature]
+                error = abs(actual - predicted) / (actual + 1e-10)  # Relative error
+                prediction_errors[feature] = error
+
         # Update metrics history
         self.metrics_history["revenue"].append(self.current_state["Revenue generated"])
         self.metrics_history["costs"].append(self.current_state["Costs"])
         self.metrics_history["lead_time"].append(self.current_state["Lead time"])
         self.metrics_history["defect_rate"].append(self.current_state["Defect rates"])
         self.metrics_history["total_reward"].append(reward)
+        self.metrics_history["predicted_values"].append(predicted_values)
+        self.metrics_history["actual_values"].append({k: self.current_state.get(k, 0) for k in self.prediction_features})
 
         # Get observation
         observation = self._get_state_representation()
 
         # Additional info
         info = {
-            "profit": self.current_state["Revenue generated"]
-            - self.current_state["Costs"],
+            "profit": self.current_state["Revenue generated"] - self.current_state["Costs"],
             "supplier": self.suppliers[self.current_supplier_idx],
             "transport_mode": self.transport_modes[self.current_transport_idx],
             "route": self.routes[self.current_route_idx],
@@ -461,6 +604,8 @@ class SupplyChainEnvironment(gym.Env):
                 "defect_rate": self.current_state["Defect rates"],
                 "production_volume": self.current_state["Production volumes"],
             },
+            "predictions": predicted_values,
+            "prediction_errors": prediction_errors
         }
 
         if self.render_mode == "human":
@@ -473,9 +618,9 @@ class SupplyChainEnvironment(gym.Env):
         # Initialize the figure and axes if they don't exist
         if self.fig is None or self.ax is None:
             plt.ion()
-            self.fig, self.ax = plt.subplots(2, 2, figsize=(12, 8))
+            self.fig, self.ax = plt.subplots(3, 2, figsize=(14, 10))
             plt.tight_layout(pad=3.0)
-            self.fig.suptitle("Supply Chain Optimization Metrics", fontsize=16)
+            self.fig.suptitle("Meridian Engine Metrics", fontsize=16)
 
         # Clear previous plots
         for ax_row in self.ax:
@@ -515,6 +660,48 @@ class SupplyChainEnvironment(gym.Env):
             self.ax[1, 1].set_title("Total Reward")
             self.ax[1, 1].set_xlabel("Step")
             self.ax[1, 1].set_ylabel("Reward")
+            
+            # Prediction accuracy
+            if len(self.metrics_history["predicted_values"]) > 0:
+                # Calculate prediction errors for selected metrics
+                lead_time_errors = []
+                cost_errors = []
+                
+                for i in range(len(self.metrics_history["predicted_values"])):
+                    pred = self.metrics_history["predicted_values"][i]
+                    actual = self.metrics_history["actual_values"][i]
+                    
+                    if "Lead time" in pred and "Lead time" in actual:
+                        error = abs(pred["Lead time"] - actual["Lead time"]) / (actual["Lead time"] + 1e-10)
+                        lead_time_errors.append(min(error, 1.0))  # Cap at 100% error for visualization
+                    
+                    if "Costs" in pred and "Costs" in actual:
+                        error = abs(pred["Costs"] - actual["Costs"]) / (actual["Costs"] + 1e-10)
+                        cost_errors.append(min(error, 1.0))  # Cap at 100% error for visualization
+                
+                # Plot prediction errors
+                if lead_time_errors:
+                    self.ax[2, 0].plot(steps[-len(lead_time_errors):], lead_time_errors, 'r-', label="Lead Time")
+                if cost_errors:
+                    self.ax[2, 0].plot(steps[-len(cost_errors):], cost_errors, 'b-', label="Costs")
+                
+                self.ax[2, 0].set_title("Prediction Error (%)")
+                self.ax[2, 0].set_xlabel("Step")
+                self.ax[2, 0].set_ylabel("Relative Error")
+                self.ax[2, 0].legend()
+                self.ax[2, 0].set_ylim(0, 1.0)
+                
+                # Feature importance
+                if hasattr(self.prediction_models["Lead time"], 'feature_importances_'):
+                    importances = self.prediction_models["Lead time"].feature_importances_
+                    feature_names = ["Supplier", "Transport", "Route", "Order Qty", "Prod Vol"]
+                    
+                    # Sort features by importance
+                    indices = np.argsort(importances)
+                    self.ax[2, 1].barh(range(len(indices)), importances[indices], color='b')
+                    self.ax[2, 1].set_yticks(range(len(indices)))
+                    self.ax[2, 1].set_yticklabels([feature_names[i] for i in indices])
+                    self.ax[2, 1].set_title("Lead Time Prediction\nFeature Importance")
 
             # Current supplier and transport info
             supplier = self.suppliers[self.current_supplier_idx]
