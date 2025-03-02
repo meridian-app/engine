@@ -1,6 +1,6 @@
 # Meridian Engine
 
-A powerful supply chain optimization engine powered by reinforcement learning.
+A powerful supply chain prediction and optimization engine powered by reinforcement learning.
 
 ## ⚠️ Warning: Research Project Only
 
