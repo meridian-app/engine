@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app.schemas.engine import EngineDataMessage
 from app.utils.engine import SupplyChainEngine
 
 class SupplyNetworkManager:
@@ -15,7 +16,8 @@ class SupplyNetworkManager:
         self.logger = logging.getLogger(f"{__name__}.SupplyNetworkManager")
         self.logger.info("Initializing supply chain network manager")
 
-    async def handle_message(self, websocket: WebSocket, message: dict[str, Any]):
+    async def handle_message(self, websocket: WebSocket, data: EngineDataMessage):
+        message = data.model_dump()
         event = message.get("event")
         network_id = message.get("network_id")
         payload = message.get("payload")
@@ -29,8 +31,8 @@ class SupplyNetworkManager:
         engine = self.networks[network_id]
 
         try:
-            if event == "patch:network:data":
-                self.logger.info("[WS]: Received event 'patch:network:data'")
+            if event == "update:network:data":
+                self.logger.info("[WS]: Received event 'update:network:data'")
                 await self.handle_patch_data(engine, websocket, network_id, payload)
             elif event == "get:network:actions":
                 self.logger.info("[WS]: Received event 'patch:network:data'")

@@ -1,4 +1,5 @@
-from typing import Dict, List
+from typing import Dict, List, Literal
+
 from pydantic import BaseModel
 
 
@@ -6,6 +7,7 @@ class EngineMetrics(BaseModel):
     """
     Schema for the metrics output by the supply chain engine
     """
+
     revenue: float
     costs: float
     lead_time: float
@@ -18,10 +20,17 @@ class EngineActorData(BaseModel):
     """
     Schema for the actor external data into the supply chain engine
     """
+
     supplier_id: str
     name: str
     products: List[Dict]
-    performance_metrics: Dict
-    location: Dict
-    capacity: Dict
-    certifications: List[str]
+    performance_metrics: Dict | None
+    location: Dict | None
+    capacity: Dict | None
+    certifications: List[str] | None
+
+
+class EngineDataMessage(BaseModel):
+    event: Literal["get:network:actions", "get:network:predictions", "update:network:data"]
+    network_id: str
+    payload: EngineActorData | None

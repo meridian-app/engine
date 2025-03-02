@@ -2,6 +2,7 @@ import json
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from app.schemas.engine import EngineDataMessage
 from app.utils.network import SupplyNetworkManager
 
 
@@ -26,11 +27,13 @@ class WebsocketConnectionManager:
         try:
             while True:
                 try:
-                    data = await websocket.receive_json()
+                    message = await websocket.receive_text()
+                    raw_data = json.loads(message)
                 except json.JSONDecodeError:
                     await websocket.send_json(
                         {"status": "error", "message": "Invalid JSON format"}
                     )
+                data = EngineDataMessage(**raw_data)
                 await self.network_manager.handle_message(websocket, data)
         except WebSocketDisconnect:
             self.disconnect(websocket)
