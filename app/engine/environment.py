@@ -1,6 +1,7 @@
+import logging
 import os
 import random
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import gymnasium as gym
 import matplotlib.pyplot as plt
@@ -52,6 +53,9 @@ class SupplyChainEnvironment(gym.Env):
         lead_time_weight: float = 0.5,  # Increased weight for lead time in reward calculation
     ):
         super().__init__()
+
+        self.logger = logging.getLogger(f"{__name__}.SupplyChainEnvironment")
+        self.logger.info("Initializing supply chain environment")
 
         # Set default csv_path if none provided
         if csv_path is None:
@@ -735,4 +739,4 @@ class SupplyChainEnvironment(gym.Env):
                 self.fig = None
                 self.ax = None
         except Exception as e:
-            print(f"Warning: Error closing matplotlib figure: {e}")
+            self.logger.error(f"Error closing matplotlib figure: {e}")

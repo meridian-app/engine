@@ -1,11 +1,14 @@
-import json
 from contextlib import asynccontextmanager
+from logging.config import dictConfig
 
-import pandas as pd
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+from app.config import LoggerConfig
 from app.utils.engine import SupplyChainEngine
 from app.utils.websocket import WebsocketConnectionManager
+
+# Initialize logger
+dictConfig(LoggerConfig().model_dump())
 
 
 @asynccontextmanager
@@ -42,8 +45,8 @@ wsmanager = WebsocketConnectionManager()
 
 app = FastAPI(title="Meridian Engine", lifespan=lifespan, docs_url=None, redoc_url=None)
 
-
-@app.websocket("/ws")
+# Mount engine for supply chain environment
+@app.websocket("/engine")
 async def ws_endpoint(ws: WebSocket):
     await wsmanager.connect(ws)
     try:

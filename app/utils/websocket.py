@@ -25,13 +25,12 @@ class WebsocketConnectionManager:
     async def handle_websocket(self, websocket: WebSocket) -> None:
         try:
             while True:
-                message = await websocket.receive_text()
                 try:
-                    data = json.loads(message)
-                    await self.network_manager.handle_message(websocket, data)
+                    data = await websocket.receive_json()
                 except json.JSONDecodeError:
                     await websocket.send_json(
                         {"status": "error", "message": "Invalid JSON format"}
                     )
+                await self.network_manager.handle_message(websocket, data)
         except WebSocketDisconnect:
             self.disconnect(websocket)

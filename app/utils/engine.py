@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import Any, Optional
@@ -12,7 +13,6 @@ from app.engine.agent import SupplyChainAgent
 from app.engine.environment import SupplyChainEnvironment
 from app.schemas.action import ActionExplanation
 
-
 class SupplyChainEngine:
     """Wrapper class to handle supply chain optimization, action explanation and agent based tasks."""
 
@@ -20,13 +20,16 @@ class SupplyChainEngine:
         """Initialize the optimizer with a supply chain environment."""
         self.env = SupplyChainEnvironment(csv_path=csv_path, render_mode=None)
         self.agent: Optional[SupplyChainAgent] = None
+        self.external_data_initialized = False
+        self.logger = logging.getLogger(f"{__name__}.SupplyChainEngine")
+        self.logger.info("Initializing supply chain engine")
         self.reset_environment()
 
     def pre_train_environment(self, num_simulations=1000):
         """Pre-train environment using Monte Carlo simulations"""
-        print("Pre-training environment...")
+        self.logger.info("Pre-training environment...")
         self.train_environment(num_simulations=num_simulations)
-        print("Environment pre-training complete!")
+        self.logger.info("Environment pre-training complete!")
 
     def save_environment(self):
         """Save environment state"""
@@ -40,7 +43,7 @@ class SupplyChainEngine:
         os.makedirs(os.path.join(current_dir, "..", MODELS_DIR), exist_ok=True)
         with open(agent_path, "wb+") as f:
             pickle.dump(self.env, f)
-        print(f"Environment saved to {ENVIRONMENT_MODEL_PATH}")
+        self.logger.info(f"Environment saved to {ENVIRONMENT_MODEL_PATH}")
 
     def load_environment(self) -> bool:
         """Load environment state if available"""
@@ -72,7 +75,7 @@ class SupplyChainEngine:
 
             os.makedirs(os.path.join(current_dir, "..", MODELS_DIR), exist_ok=True)
             self.agent.save_model(agent_path)
-            print(f"Agent saved to {agent_path}")
+            self.logger.info(f"Agent saved to {agent_path}")
 
     def load_agent(self) -> bool:
         """Load trained agent if available"""
@@ -85,7 +88,7 @@ class SupplyChainEngine:
             if not self.agent:
                 self.agent = SupplyChainAgent(self.env)
             self.agent.load_model(agent_path)
-            print(f"Agent loaded from {agent_path}")
+            self.logger.info(f"Agent loaded from {agent_path}")
             return True
         return False
 
@@ -134,7 +137,6 @@ class SupplyChainEngine:
         )
 
         return detailed_explanation
-
     def update_environment_with_supplier_data(self, supplier_data: dict[str, Any]):
         """Update the environment based on real-time supplier data."""
         # Extract supplier information
@@ -148,29 +150,18 @@ class SupplyChainEngine:
             self.env.suppliers.append(supplier_name)
 
         # Update the environment's data with this supplier's information
-        # Extract product information from the first product (assuming there's at least one)
         if supplier_data.get("products") and len(supplier_data["products"]) > 0:
             product = supplier_data["products"][0]
-
+            
             # Create a new row for the data
             new_data = {
                 "Price": product.get("price", 0),
                 "Stock levels": product.get("stock_level", 0),
-                "Lead time": product.get("manufacturing_details", {}).get(
-                    "lead_time", 0
-                ),
-                "Production volumes": product.get("manufacturing_details", {}).get(
-                    "production_volume", 0
-                ),
-                "Manufacturing lead time": product.get("manufacturing_details", {}).get(
-                    "manufacturing_lead_time", 0
-                ),
-                "Manufacturing costs": product.get("manufacturing_details", {}).get(
-                    "manufacturing_costs", 0
-                ),
-                "Defect rates": product.get("manufacturing_details", {}).get(
-                    "defect_rates", 0
-                ),
+                "Lead time": product.get("manufacturing_details", {}).get("lead_time", 0),
+                "Production volumes": product.get("manufacturing_details", {}).get("production_volume", 0),
+                "Manufacturing lead time": product.get("manufacturing_details", {}).get("manufacturing_lead_time", 0),
+                "Manufacturing costs": product.get("manufacturing_details", {}).get("manufacturing_costs", 0),
+                "Defect rates": product.get("manufacturing_details", {}).get("defect_rates", 0),
                 "Supplier name": supplier_name,
             }
 
@@ -182,7 +173,7 @@ class SupplyChainEngine:
                 # Update transportation modes if needed
                 transport_mode = shipping.get("mode", "")
                 if transport_mode and transport_mode not in self.env.transport_modes:
-                    self.env.transport_modes.append(transport_mode)  #
+                    self.env.transport_modes.append(transport_mode)
 
                 # Update routes if needed
                 route = shipping.get("route", "")
@@ -193,48 +184,150 @@ class SupplyChainEngine:
                 new_data["Transportation modes"] = transport_mode
                 new_data["Routes"] = route
 
-            # Calculate costs (simple sum for now)
-            new_data["Costs"] = new_data.get("Manufacturing costs", 0) + new_data.get(
-                "Shipping costs", 0
-            )
+            # Calculate costs and revenue
+            new_data["Costs"] = new_data.get("Manufacturing costs", 0) + new_data.get("Shipping costs", 0)
+            effective_production = new_data.get("Production volumes", 0) * (1 - new_data.get("Defect rates", 0) / 100)
+            new_data["Revenue generated"] = effective_production * new_data.get("Price", 0)
 
-            # Calculate revenue
-            effective_production = new_data.get("Production volumes", 0) * (
-                1 - new_data.get("Defect rates", 0) / 100
-            )
-            new_data["Revenue generated"] = effective_production * new_data.get(
-                "Price", 0
-            )
-
-            # Add this data to the environment's dataset
+            # Create DataFrame from new data
             new_df = pd.DataFrame([new_data])
-            self.env.full_data = pd.concat(
-                [self.env.full_data, new_df], ignore_index=True
+
+            # Replace or append data based on initialization status
+            if not self.external_data_initialized:
+                # First external data payload - replace environment data
+                self.env.full_data = new_df
+                self.external_data_initialized = True
+                self.logger.info("Initialized environment with external supplier data")
+            else:
+                # Subsequent data - append to existing
+                self.env.full_data = pd.concat([self.env.full_data, new_df], ignore_index=True)
+                self.logger.info("Appended new supplier data to existing environment")
+
+            # Update action space dimensions
+            num_suppliers = len(self.env.suppliers)
+            num_transport_modes = len(self.env.transport_modes)
+            num_routes = len(self.env.routes)
+
+            self.env.action_space = gym.spaces.MultiDiscrete([
+                num_suppliers,   # Supplier selection
+                10,              # Order quantity (scaled 1-10)
+                num_transport_modes,  # Transportation mode
+                num_routes,      # Route selection
+                5,               # Production volume adjustment
+            ])
+
+            # Update observation space
+            num_features = 9  # numerical features
+            obs_dim = num_features + num_suppliers + num_transport_modes + num_routes
+            self.env.observation_space = gym.spaces.Box(
+                low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
             )
 
-        # Update environment action space if needed
-        num_suppliers = len(self.env.suppliers)
-        num_transport_modes = len(self.env.transport_modes)
-        num_routes = len(self.env.routes)
-
-        self.env.action_space = gym.spaces.MultiDiscrete(
-            [
-                num_suppliers,  # Supplier selection
-                10,  # Order quantity (scaled 1-10)
-                num_transport_modes,  # Transportation mode
-                num_routes,  # Route selection
-                5,  # Production volume adjustment
-            ]
-        )
-
-        # Update observation space
-        num_features = 9  # numerical features
-        obs_dim = num_features + num_suppliers + num_transport_modes + num_routes
-        self.env.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
-        )
-
+        # Reset agent to force retraining with new data
+        self.agent = None
+        self.save_environment()
         return self.env
+
+    # def update_environment_with_supplier_data(self, supplier_data: dict[str, Any]):
+    #     """Update the environment based on real-time supplier data."""
+    #     # Extract supplier information
+    #     supplier_name = supplier_data.get("name", "")
+
+    #     # Check if this supplier exists in our environment
+    #     if supplier_name in self.env.suppliers:
+    #         self.env.suppliers.index(supplier_name)
+    #     else:
+    #         # Add new supplier to the environment
+    #         self.env.suppliers.append(supplier_name)
+
+    #     # Update the environment's data with this supplier's information
+    #     # Extract product information from the first product (assuming there's at least one)
+    #     if supplier_data.get("products") and len(supplier_data["products"]) > 0:
+    #         product = supplier_data["products"][0]
+
+    #         # Create a new row for the data
+    #         new_data = {
+    #             "Price": product.get("price", 0),
+    #             "Stock levels": product.get("stock_level", 0),
+    #             "Lead time": product.get("manufacturing_details", {}).get(
+    #                 "lead_time", 0
+    #             ),
+    #             "Production volumes": product.get("manufacturing_details", {}).get(
+    #                 "production_volume", 0
+    #             ),
+    #             "Manufacturing lead time": product.get("manufacturing_details", {}).get(
+    #                 "manufacturing_lead_time", 0
+    #             ),
+    #             "Manufacturing costs": product.get("manufacturing_details", {}).get(
+    #                 "manufacturing_costs", 0
+    #             ),
+    #             "Defect rates": product.get("manufacturing_details", {}).get(
+    #                 "defect_rates", 0
+    #             ),
+    #             "Supplier name": supplier_name,
+    #         }
+
+    #         # Handle shipping options
+    #         if product.get("shipping_options") and len(product["shipping_options"]) > 0:
+    #             shipping = product["shipping_options"][0]
+    #             new_data["Shipping costs"] = shipping.get("cost", 0)
+
+    #             # Update transportation modes if needed
+    #             transport_mode = shipping.get("mode", "")
+    #             if transport_mode and transport_mode not in self.env.transport_modes:
+    #                 self.env.transport_modes.append(transport_mode)  #
+
+    #             # Update routes if needed
+    #             route = shipping.get("route", "")
+    #             if route and route not in self.env.routes:
+    #                 self.env.routes.append(route)
+
+    #             # Set values
+    #             new_data["Transportation modes"] = transport_mode
+    #             new_data["Routes"] = route
+
+    #         # Calculate costs (simple sum for now)
+    #         new_data["Costs"] = new_data.get("Manufacturing costs", 0) + new_data.get(
+    #             "Shipping costs", 0
+    #         )
+
+    #         # Calculate revenue
+    #         effective_production = new_data.get("Production volumes", 0) * (
+    #             1 - new_data.get("Defect rates", 0) / 100
+    #         )
+    #         new_data["Revenue generated"] = effective_production * new_data.get(
+    #             "Price", 0
+    #         )
+
+    #         # Add this data to the environment's dataset
+    #         new_df = pd.DataFrame([new_data])
+    #         self.env.full_data = pd.concat(
+    #             [self.env.full_data, new_df], ignore_index=True
+    #         )
+
+    #     # Update environment action space if needed
+    #     num_suppliers = len(self.env.suppliers)
+    #     num_transport_modes = len(self.env.transport_modes)
+    #     num_routes = len(self.env.routes)
+
+    #     self.env.action_space = gym.spaces.MultiDiscrete(
+    #         [
+    #             num_suppliers,  # Supplier selection
+    #             10,  # Order quantity (scaled 1-10)
+    #             num_transport_modes,  # Transportation mode
+    #             num_routes,  # Route selection
+    #             5,  # Production volume adjustment
+    #         ]
+    #     )
+
+    #     # Update observation space
+    #     num_features = 9  # numerical features
+    #     obs_dim = num_features + num_suppliers + num_transport_modes + num_routes
+    #     self.env.observation_space = gym.spaces.Box(
+    #         low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
+    #     )
+
+    #     return self.env
 
     def train_environment(self, num_simulations=100, horizon=10):
         """
@@ -303,7 +396,7 @@ class SupplyChainEngine:
 
             return agent_results, eval_results
 
-        print("Using pre-trained agent")
+        self.logger.info("Using pre-trained agent")
         return None, None
 
     def _create_test_env_copy(self):
