@@ -26,13 +26,13 @@ class SupplyChainEngine:
         """Pre-train environment using Monte Carlo simulations"""
         print("Pre-training environment...")
         self.train_environment(num_simulations=num_simulations)
-        print("\nEnvironment pre-training complete!")
+        print("Environment pre-training complete!")
 
     def save_environment(self):
         """Save environment state"""
         import os
         import pickle
-        
+
         current_dir = os.path.dirname(os.path.abspath(__file__))
         agent_path = os.path.join(current_dir, "..", ENVIRONMENT_MODEL_PATH)
 
@@ -48,7 +48,7 @@ class SupplyChainEngine:
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
         env_path = os.path.join(current_dir, "..", ENVIRONMENT_MODEL_PATH)
-        
+
         if Path(env_path).exists():
             with open(env_path, "rb") as f:
                 self.env = pickle.load(f)
@@ -66,7 +66,7 @@ class SupplyChainEngine:
         if self.agent:
             # Create the directory if it doesn't exist
             import os
-            
+
             current_dir = os.path.dirname(os.path.abspath(__file__))
             agent_path = os.path.join(current_dir, "..", AGENT_MODEL_PATH)
 
@@ -77,7 +77,7 @@ class SupplyChainEngine:
     def load_agent(self) -> bool:
         """Load trained agent if available"""
         import os
-            
+
         current_dir = os.path.dirname(os.path.abspath(__file__))
         agent_path = os.path.join(current_dir, "..", AGENT_MODEL_PATH)
 
@@ -89,7 +89,7 @@ class SupplyChainEngine:
             return True
         return False
 
-    def explain_action(self, action, reward):
+    def explain_action(self, action):
         """Generate a human-readable explanation for an action."""
         supplier_idx, order_qty_scaled, transport_idx, route_idx, prod_vol_adj = action
 
@@ -130,7 +130,6 @@ class SupplyChainEngine:
             transport_mode=transport_mode,
             route=route,
             production_adjustment=prod_adjustment,
-            expected_reward=reward,
             explanation=explanation,
         )
 
@@ -256,12 +255,12 @@ class SupplyChainEngine:
 
             # Print predictions and actuals
             print(f"Reward: {reward:.2f}")
-            print(
-                f"Lead Time: {info['metrics']['lead_time']:.1f} (Predicted: {info['predictions']['Lead time']:.1f})"
-            )
-            print(
-                f"Costs: {info['metrics']['costs']:.2f} (Predicted: {info['predictions']['Costs']:.2f})"
-            )
+            # print(
+            #     f"Lead Time: {info['metrics']['lead_time']:.1f} (Predicted: {info['predictions']['Lead time']:.1f})"
+            # )
+            # print(
+            #     f"Costs: {info['metrics']['costs']:.2f} (Predicted: {info['predictions']['Costs']:.2f})"
+            # )
 
             # Simulate future steps
             for _ in range(horizon - 1):
@@ -309,9 +308,12 @@ class SupplyChainEngine:
 
     def _create_test_env_copy(self):
         """Helper to create an environment copy"""
-        test_env = SupplyChainEnvironment()
-        test_env.current_state = self.env.current_state.copy()
-        test_env.current_supplier_idx = self.env.current_supplier_idx
-        test_env.current_transport_idx = self.env.current_transport_idx
-        test_env.current_route_idx = self.env.current_route_idx
-        return test_env
+        copy_env = SupplyChainEnvironment()
+        copy_env.full_data = self.env.full_data.copy()
+        copy_env.current_state = self.env.current_state.copy()
+        copy_env.current_step = self.env.current_step
+        copy_env.current_supplier_idx = self.env.current_supplier_idx
+        copy_env.current_transport_idx = self.env.current_transport_idx
+        copy_env.current_route_idx = self.env.current_route_idx
+        copy_env.prediction_models = self.env.prediction_models
+        return copy_env

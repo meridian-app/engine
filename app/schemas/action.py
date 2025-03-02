@@ -23,5 +23,4 @@ class ActionExplanation(BaseModel):
     transport_mode: str
     route: str
     production_adjustment: str
-    expected_reward: float
     explanation: str
