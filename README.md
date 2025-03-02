@@ -14,7 +14,6 @@ The Meridian Engine is an **educational exploration** of AI capabilities in supp
 - **Simplified Model**: Uses a highly constrained supply chain model for educational purposes
 - **Research Focus**: Created to understand reinforcement learning applications rather than for production deployment
 
-
 ## Overview
 
 Meridian Engine is an AI-driven supply chain optimization platform that uses reinforcement learning techniques to make intelligent decisions about supplier selection, order quantities, transportation modes, and production volumes. The engine continuously learns from supply chain data to improve its recommendations over time.

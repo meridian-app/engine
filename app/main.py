@@ -47,7 +47,7 @@ app = FastAPI(title="Meridian Engine", lifespan=lifespan, docs_url=None, redoc_u
 
 # Mount engine for supply chain environment
 @app.websocket("/engine")
-async def ws_endpoint(ws: WebSocket):
+async def engine_endpoint(ws: WebSocket):
     await wsmanager.connect(ws)
     try:
         await wsmanager.handle_websocket(ws)

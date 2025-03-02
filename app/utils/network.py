@@ -14,7 +14,7 @@ class SupplyNetworkManager:
         self.networks: dict[str, SupplyChainEngine] = defaultdict(SupplyChainEngine)
         self.network_data: dict[str, dict[str, Any]] = defaultdict(dict)
         self.logger = logging.getLogger(f"{__name__}.SupplyNetworkManager")
-        self.logger.info("Initializing supply chain network manager")
+        self.logger.info("Initialized supply chain network manager")
 
     async def handle_message(self, websocket: WebSocket, data: EngineDataMessage) -> None:
         message = data.model_dump()

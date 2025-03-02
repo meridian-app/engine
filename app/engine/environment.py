@@ -55,7 +55,7 @@ class SupplyChainEnvironment(gym.Env):
         super().__init__()
 
         self.logger = logging.getLogger(f"{__name__}.SupplyChainEnvironment")
-        self.logger.info("Initializing supply chain environment")
+        self.logger.info("Initialized supply chain environment")
 
         # Set default csv_path if none provided
         if csv_path is None:

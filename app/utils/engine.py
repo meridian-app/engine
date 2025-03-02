@@ -17,12 +17,12 @@ class SupplyChainEngine:
     """Wrapper class to handle supply chain optimization, action explanation and agent based tasks."""
 
     def __init__(self, csv_path: Optional[str] = None):
-        """Initialize the optimizer with a supply chain environment."""
+        """Initialize the engine with a supply chain environment and agent."""
         self.env = SupplyChainEnvironment(csv_path=csv_path, render_mode=None)
         self.agent: Optional[SupplyChainAgent] = None
         self.external_data_initialized = False
         self.logger = logging.getLogger(f"{__name__}.SupplyChainEngine")
-        self.logger.info("Initializing supply chain engine")
+        self.logger.info("Initialized supply chain engine")
         self.reset_environment()
 
     def pre_train_environment(self, num_simulations=1000):
