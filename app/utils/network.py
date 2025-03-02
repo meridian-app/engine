@@ -47,24 +47,6 @@ class SupplyNetworkManager:
             self.logger.error(f"[WS]: unknown error'{str(e)}'")
             await websocket.send_json({"status": "error", "message": str(e)})
 
-    # async def handle_patch_data(
-    #     self,
-    #     engine: SupplyChainEngine,
-    #     network_id: str,
-    #     payload: dict[str, Any] | None,
-    # ) -> None:
-    #     """Update network with new supplier data"""
-
-    #     if not payload:
-    #         raise ValueError("No actor payload provided")
-
-    #     # Update network-specific data
-    #     self.network_data[network_id].update(payload)
-
-    #     # Update engine with latest supplier data
-    #     engine.update_environment_with_supplier_data(payload)
-    #     engine.save_environment()
-
     async def handle_patch_data(
     self,
     engine: SupplyChainEngine,
