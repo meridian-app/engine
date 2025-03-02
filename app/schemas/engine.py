@@ -32,5 +32,5 @@ class EngineActorData(BaseModel):
 
 class EngineDataMessage(BaseModel):
     event: Literal["get:network:actions", "get:network:predictions", "update:network:data"]
-    network_id: str
+    network: str # ID (UUID) of the supply chain network on meridian platform
     payload: EngineActorData | None
