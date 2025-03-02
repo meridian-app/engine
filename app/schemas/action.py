@@ -6,6 +6,7 @@ class Action(BaseModel):
     """
     Schema for action on the supply chain engine 
     """
+
     supplier_idx: int
     order_quantity: int
     transport_idx: int
@@ -17,6 +18,7 @@ class ActionExplanation(BaseModel):
     """
     Schema for action recommendation explanation 
     """
+
     action: List[int]
     supplier: str
     order_quantity: float

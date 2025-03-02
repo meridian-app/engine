@@ -31,6 +31,10 @@ class EngineActorData(BaseModel):
 
 
 class EngineDataMessage(BaseModel):
+    """
+    Schema for the engine message via websockets
+    """
+    
     event: Literal["get:network:actions", "get:network:predictions", "update:network:data"]
     network: str # ID (UUID) of the supply chain network on meridian platform
     payload: EngineActorData | None
