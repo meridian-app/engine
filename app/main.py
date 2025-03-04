@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
         engine.pre_train_environment()
         engine.save_environment()
 
+
         # Start agent training in background
         import asyncio
 

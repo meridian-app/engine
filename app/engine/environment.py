@@ -9,6 +9,9 @@ import numpy as np
 import pandas as pd
 from gymnasium import spaces
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
 
 
 class SupplyChainEnvironment(gym.Env):
@@ -87,6 +90,7 @@ class SupplyChainEnvironment(gym.Env):
             "predicted_values": [],  # Track prediction accuracy
             "actual_values": [],     # Track actual values
         }
+        self.regression_metrics = {}
 
         # Get unique categorical values
         self.suppliers: Any = self.base_data["Supplier name"].unique().tolist()
@@ -313,15 +317,14 @@ class SupplyChainEnvironment(gym.Env):
             models[feature] = RandomForestRegressor(n_estimators=50, random_state=42)
         return models
     
+
     def train_prediction_models(self):
-        """Train the prediction models on the available data."""
+        """Train the prediction models on the available data and compute metrics."""
         # Prepare training data
         X_train = []
         y_train = {feature: [] for feature in self.prediction_features}
-        
-        # For each data point in our dataset
+
         for _, row in self.full_data.iterrows():
-            # Get supplier, transport, and route indices
             try:
                 supplier_idx = self.suppliers.index(row["Supplier name"])
                 transport_idx = self.transport_modes.index(row["Transportation modes"])
@@ -332,9 +335,8 @@ class SupplyChainEnvironment(gym.Env):
                 transport_norm = transport_idx / self.num_transport_modes
                 route_norm = route_idx / self.num_routes
                 
-                # Create input feature vector (simplified for demonstration)
-                # In a real system, you'd include more features like order quantities, etc.
-                features = [supplier_norm, transport_norm, route_norm, 0.5, 0.5]  # Last two are placeholders
+                # Create input feature vector
+                features = [supplier_norm, transport_norm, route_norm, 0.5, 0.5]  # Placeholder order and production
                 X_train.append(features)
                 
                 # Get target values for each prediction model
@@ -344,17 +346,38 @@ class SupplyChainEnvironment(gym.Env):
                     else:
                         y_train[feature].append(0)  # Fallback if data is missing
             except (ValueError, KeyError):
-                # Skip this row if there's an issue with the indices
                 continue
-        
+
         # Convert to numpy arrays
         X_train = np.array(X_train)
-        
-        # Train each model if we have enough data
+
         if len(X_train) > 0:
             for feature in self.prediction_features:
                 y = np.array(y_train[feature])
-                self.prediction_models[feature].fit(X_train, y)
+                if len(y) < 2:
+                    continue  # Not enough samples to split
+
+                # Split into training and test sets
+                X_train_feat, X_test_feat, y_train_feat, y_test_feat = train_test_split(
+                    X_train, y, test_size=0.2, random_state=42
+                )
+
+                # Train model
+                self.prediction_models[feature].fit(X_train_feat, y_train_feat)
+
+                # Predict and compute metrics
+                y_pred = self.prediction_models[feature].predict(X_test_feat)
+                mse = mean_squared_error(y_test_feat, y_pred)
+                mae = mean_absolute_error(y_test_feat, y_pred)
+                r2 = r2_score(y_test_feat, y_pred)
+
+                self.regression_metrics[feature] = {
+                    'mse': mse,
+                    'mae': mae,
+                    'r2': r2
+                }
+
+        self.logger.info("Prediction models trained and metrics computed.")
                 
     def predict_supply_chain_values(self) -> Dict[str, float]:
         """Predict the supply chain values based on current state and actions."""
@@ -616,6 +639,43 @@ class SupplyChainEnvironment(gym.Env):
             self._render_frame()
 
         return observation, reward, terminated, truncated, info
+    
+    def plot_regression_metrics(self) -> None:
+        """Plot regression metrics (MSE, MAE, R²) for each feature's prediction model."""
+        if not self.regression_metrics:
+            self.logger.warning("No regression metrics to plot.")
+            return
+
+        features = list(self.regression_metrics.keys())
+        mse = [self.regression_metrics[f]['mse'] for f in features]
+        mae = [self.regression_metrics[f]['mae'] for f in features]
+        r2 = [self.regression_metrics[f]['r2'] for f in features]
+
+        plt.figure(figsize=(15, 10))
+
+        # Plot MSE
+        plt.subplot(3, 1, 1)
+        plt.bar(features, mse, color='blue')
+        plt.title('Mean Squared Error (MSE) by Feature')
+        plt.ylabel('MSE')
+        plt.xticks(rotation=45)
+
+        # Plot MAE
+        plt.subplot(3, 1, 2)
+        plt.bar(features, mae, color='green')
+        plt.title('Mean Absolute Error (MAE) by Feature')
+        plt.ylabel('MAE')
+        plt.xticks(rotation=45)
+
+        # Plot R²
+        plt.subplot(3, 1, 3)
+        plt.bar(features, r2, color='red')
+        plt.title('R-squared (R²) by Feature')
+        plt.ylabel('R²')
+        plt.xticks(rotation=45)
+
+        plt.tight_layout()
+        plt.show()
 
     def _render_frame(self):
         """Render the current state of the environment."""

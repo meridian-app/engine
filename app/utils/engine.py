@@ -273,7 +273,7 @@ class SupplyChainEngine:
                     top_rewards.pop(min_idx)
 
         return list(zip(top_actions, top_rewards))
-
+    
     def train_and_evaluate_agent(self, num_episodes=500):
         """Train and evaluate agent with environment pre-training"""
         # Pre-train environment if not already trained
@@ -281,8 +281,11 @@ class SupplyChainEngine:
             self.pre_train_environment()
             self.save_environment()
 
+
+        agent_check = self.load_agent() 
+
         # Load or train agent
-        if not self.load_agent():
+        if agent_check == False:
             print("Training new agent...")
             env = FlattenObservation(self.env)
             self.agent = SupplyChainAgent(env)
@@ -292,6 +295,9 @@ class SupplyChainEngine:
             # Evaluate and show results
             eval_results = self.agent.evaluate(num_episodes=20)
             self.agent.plot_training_results()
+
+            # Visualize regression metrics
+            self.env.plot_regression_metrics()
 
             return agent_results, eval_results
 
