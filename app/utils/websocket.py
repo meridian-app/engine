@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -28,12 +29,21 @@ class WebsocketConnectionManager:
             while True:
                 try:
                     message = await websocket.receive_text()
-                    raw_data = json.loads(message)
-                except json.JSONDecodeError:
-                    await websocket.send_json(
-                        {"status": "error", "message": "Invalid JSON format"}
+                    raw: dict[str, Any] = json.loads(message)
+                    event = raw.get("event")
+                    network = raw.get("network")
+                    payload = raw.get("payload", None)
+                except (json.JSONDecodeError, KeyError):
+                    await websocket.send_text(
+                        json.dumps({"status": "error", "message": "Invalid JSON format"})
                     )
-                data = EngineDataMessage(**raw_data)
-                await self.network_manager.handle_message(websocket, data)
+                
+                data = {
+                    "event": event,
+                    "network": network,
+                    "payload": payload
+                } 
+                message = EngineDataMessage(**data)
+                await self.network_manager.handle_message(websocket, message)
         except WebSocketDisconnect:
             self.disconnect(websocket)

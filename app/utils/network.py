@@ -1,4 +1,5 @@
 from collections import defaultdict
+import json
 import logging
 from typing import Any
 
@@ -23,8 +24,8 @@ class SupplyNetworkManager:
         payload = message.get("payload")
 
         if not event or not network_id:
-            await websocket.send_json(
-                {"status": "error", "message": "Missing event or network_id"}
+            await websocket.send_text(
+                json.dumps({"status": "error", "message": "Missing event or network_id"})
             )
             return
 
@@ -42,12 +43,12 @@ class SupplyNetworkManager:
                 await self.handle_get_predictions(engine, websocket, network_id)
             else:
                 self.logger.warning(f"[WS]: Received unknown event '{event}'")
-                await websocket.send_json(
-                    {"status": "error", "message": f"Unknown event: {event}"}
+                await websocket.send_text(
+                    json.dumps({"status": "error", "message": f"Unknown event: {event}"})
                 )
         except Exception as e:
             self.logger.error(f"[WS]: unknown error'{str(e)}'")
-            await websocket.send_json({"status": "error", "message": str(e)})
+            await websocket.send_text(json.dumps({"status": "error", "message": str(e)}))
 
     async def handle_patch_data(
     self,
@@ -75,13 +76,14 @@ class SupplyNetworkManager:
             # Re-train prediction models with new data
             updated_env.train_prediction_models()
 
-        await websocket.send_json({
+        data = json.dumps({
             "status": "success",
             "network_id": network_id,
             "event": "network:data_updated",
             "data_initialized": is_initial_data,
             "message": "Initialized with external data" if is_initial_data else "Appended new external data"
         })
+        await websocket.send_text(data)
 
     async def handle_get_actions(
         self, engine: SupplyChainEngine, websocket: WebSocket, network_id: str
@@ -108,15 +110,14 @@ class SupplyNetworkManager:
             explained_actions = [
                 engine.explain_action(action) for action in top_actions
             ]
+            data = json.dumps({
+                "status": "success",
+                "network_id": network_id,
+                "event": "network:actions",
+                "data": [exp.model_dump() for exp in explained_actions]
+            })
 
-            await websocket.send_json(
-                {
-                    "status": "success",
-                    "network_id": network_id,
-                    "event": "network:actions",
-                    "data": [exp.model_dump() for exp in explained_actions],
-                }
-            )
+            await websocket.send_text(data)
 
     async def handle_get_predictions(
         self, engine: SupplyChainEngine, websocket: WebSocket, network_id: str
@@ -125,7 +126,7 @@ class SupplyNetworkManager:
 
         predictions = engine.env.predict_supply_chain_values()
 
-        await websocket.send_json(
+        data = json.dumps(
             {
                 "status": "success",
                 "network_id": network_id,
@@ -133,3 +134,5 @@ class SupplyNetworkManager:
                 "data": predictions,
             }
         )
+
+        await websocket.send_text(data)
